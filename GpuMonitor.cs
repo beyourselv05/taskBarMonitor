@@ -1,57 +1,29 @@
-using System.Diagnostics;
-using System.Globalization;
-
 namespace TaskbarMonitor;
 
+/// <summary>
+/// Picks a GPU utilization source that works on the machine we're running on.
+/// The WDDM performance counters come first because they cover every vendor,
+/// cost almost nothing to read, and agree with Task Manager; nvidia-smi is only
+/// reached for NVIDIA cards those counters don't expose.
+/// </summary>
 static class GpuMonitor
 {
-    // Once nvidia-smi is confirmed missing, stop paying the process-spawn cost every tick.
-    private static bool _unavailable;
-
     public static async Task<int?> GetUtilizationPercentAsync()
     {
-        if (_unavailable)
+        if (GpuEngineCounters.IsAvailable)
         {
-            return null;
+            // A null here means "no reading this tick", not "no GPU", so it must not
+            // fall through to nvidia-smi - the counters are still the right source.
+            return await Task.Run(GpuEngineCounters.Sample);
         }
 
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "nvidia-smi",
-                Arguments = "--query-gpu=utilization.gpu --format=csv,noheader,nounits",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return null;
-            }
-
-            string output = await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            string firstLine = output.Split('\n')[0].Trim();
-            if (int.TryParse(firstLine, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
-            {
-                return value;
-            }
-
-            return null;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            // nvidia-smi isn't installed/reachable on this machine; don't keep retrying.
-            _unavailable = true;
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
+        return await NvidiaSmi.GetUtilizationPercentAsync();
     }
+
+    /// <summary>
+    /// Establishes the counter baseline ahead of the first tick, so the tray shows a
+    /// real number immediately instead of a placeholder. Also absorbs the one-off
+    /// category initialization cost off the UI thread.
+    /// </summary>
+    public static Task PrimeAsync() => Task.Run(() => GpuEngineCounters.Sample());
 }

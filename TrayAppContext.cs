@@ -50,6 +50,9 @@ class TrayAppContext : ApplicationContext
         _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
         _cpuCounter.NextValue();
 
+        // Both counters need a first reading to measure the next one against.
+        _ = GpuMonitor.PrimeAsync();
+
         _timer = new System.Windows.Forms.Timer { Interval = 1500 };
         _timer.Tick += async (_, _) => await UpdateAsync();
         _timer.Start();
@@ -91,7 +94,7 @@ class TrayAppContext : ApplicationContext
                 IconRenderer.SafeReplace(_gpuIcon, IconRenderer.CreateNumberIcon(gpuText, TextColor, _iconSize));
                 _lastGpuText = gpuText;
             }
-            _gpuIcon.Text = gpuPercent.HasValue ? $"GPU: {gpuPercent.Value}%" : "GPU: 확인 불가 (nvidia-smi)";
+            _gpuIcon.Text = gpuPercent.HasValue ? $"GPU: {gpuPercent.Value}%" : "GPU: 확인 불가";
         }
         finally
         {
